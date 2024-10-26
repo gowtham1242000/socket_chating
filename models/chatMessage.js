@@ -19,6 +19,12 @@ const ChatMessage = sequelizePostgres.define('ChatMessage', {
     type: DataTypes.TEXT,
     allowNull: false
   },
+   read: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    defaultValue: 'false',  // Default status
+  },
+
   timestamp: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
