@@ -150,7 +150,7 @@ console.log("------------------entering the user leve channel--------------")
         socket.emit('error', { message: 'Error updating live stream data' });
     }
 }
-
+/*
 async handleLiveStreamCommand({ liveStreamId, userId, command }) {
     const commandFilePath = path.join('/etc/ec/data/liveCommand', `${liveStreamId}.json`);
 
@@ -213,7 +213,74 @@ async handleLiveStreamCommand({ liveStreamId, userId, command }) {
         console.error('Error handling live stream command:', error);
     }
 }
-    async broadcastUpdate(liveStreamId) {
+*/
+
+
+async handleLiveStreamCommand({ liveStreamId, userId, command }) {
+    const commandFilePath = path.join('/etc/ec/data/liveCommand', `${liveStreamId}.json`);
+
+    try {
+        let commandsList = [];
+
+        // Check if the file exists and read its content
+        if (fs.existsSync(commandFilePath)) {
+            const fileContent = fs.readFileSync(commandFilePath, 'utf8');
+            commandsList = JSON.parse(fileContent);
+
+            // If the parsed content is not an array, make it an array
+            if (!Array.isArray(commandsList)) {
+                commandsList = [];
+            }
+        }
+
+        const userDetails = await getUserDetails(userId);
+        if (!userDetails) {
+            console.error('User not found for userId:', userId);
+            return;
+        }
+
+        const commandObject = {
+            userId: userDetails.userId,
+            userName: userDetails.user_name,
+            profileImage: userDetails.profile_image,
+            command,
+            timestamp: new Date().toISOString(),
+        };
+
+        commandsList.push(commandObject);
+        fs.writeFileSync(commandFilePath, JSON.stringify(commandsList, null, 2));
+
+        const activeUsers = await LiveStreamUser.findAll({
+            where: { live_stream_id: liveStreamId, status: true },
+            attributes: ['user_id'],
+        });
+
+        const userDetailsPromises = activeUsers.map(async (user) => {
+            const userDetails = await getUserDetails(user.user_id);
+            return userDetails ? {
+                userId: userDetails.userId,
+                userName: userDetails.user_name,
+                profileImage: userDetails.profile_image,
+            } : null;
+        });
+
+        const userDetailsList = await Promise.all(userDetailsPromises);
+        console.log("Commands List:", commandsList);
+
+        // Emit all commands to active users
+        userDetailsList.forEach((userDetails) => {
+            if (userDetails) {
+                this.io.to(this.userSockets[userDetails.userId]?.id).emit('newCommand', {
+                    liveStreamId,
+                    commands: commandsList, // Emit the entire list of commands
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error handling live stream command:', error);
+    }
+}
+ async broadcastUpdate(liveStreamId) {
         const liveJoinedList = await LiveStreamUser.findAll({
             where: { live_stream_id: liveStreamId, status: true }
         });

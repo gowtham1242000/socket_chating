@@ -175,6 +175,11 @@ socket.on('joinStream', ({ liveStreamId, userId, ownLive }) => {
  socket.on('liveStreamCommand', ({ liveStreamId, userId, command }) => {
        liveStreamEventsInstance.emit('liveStreamCommand', { liveStreamId, userId, command, socket });
     });
+ 
+socket.on('newCommentNotification', (notification) => {
+    console.log('Received new comment notification:', notification);
+    io.emit('newCommentNotification', notification);
+  });
 
 
 socket.on('userStatus', (data) => {
@@ -186,7 +191,7 @@ socket.on('userStatus', (data) => {
         io.emit('userStatus', { userId, status });
 
         // Update the user status in the database
-        updateUserStatusInDB(userId, status);
+//        updateUserStatusInDB(userId, status);
     } else {
         console.error('Invalid userStatus data:', data);
     }
@@ -797,7 +802,72 @@ app.get('/searchUser', async (req, res) => {
   }
 });
 
+app.post('/createComment' ,async (req, res) => {
+//return
+  const { userId, postId, content } = req.body;
+  console.log("----------testing-------------", req.body);
+try {
+    // Create the new comment
+    const newComment = await Comment.create({ userId, postId, content });
+    console.log("New comment created:", newComment);
 
+    // Retrieve the post details to get the userId of the post owner
+    const post = await Post.findByPk(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Retrieve the user details to get the userName and userProfile
+    const user = await UserDetails.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Assign a dummy image URL if userProfile is null
+    const userProfile = user.userProfile || 'https://i.postimg.cc/nc820Kz7/anandupic.png';
+
+    // Format the notification content
+    const formattedContent = `${user.userName} commented on your flare: ${content}. Thanks for the support`;
+
+    // Determine the post image URL to use in the notification
+    let postUrl = null; // Initialize postUrl
+    if (Array.isArray(post.image) && post.image.length > 0) {
+      postUrl = post.images[0]; // Use the first image URL from the array
+    } else if (typeof post.image === 'string' && post.image !== '') {
+      try {
+        const parsedImages = JSON.parse(post.image);
+        if (Array.isArray(parsedImages) && parsedImages.length > 0) {
+          postUrl = parsedImages[0]; // Use the first image URL from the parsed array
+        } else if (typeof parsedImages === 'string' && parsedImages !== '') {
+          postUrl = parsedImages; // Use the parsed string as the URL
+        }
+      } catch (error) {
+        console.error('Error parsing post images:', error);
+        return res.status(500).json({ message: 'Error parsing post images' });
+      }
+    }
+console.log("postUrl----------",postUrl);
+    // Create a notification for the post owner
+    const notification = await Notification.create({
+      userId: post.userId,  // Notify the owner of the post
+      postId,
+      type: 'comment',
+      content: formattedContent,
+      userProfile: userProfile,
+      post: postUrl,  // Use the determined post URL, can be null if not found
+    });
+
+    // Emit events to notify clients via Socket.io
+    console.log('Emitting newNotification to user:', post.userId, notification);
+    req.io.to(`user_${post.userId}`).emit('newCommentNotification', notification); // Emit to specific user
+
+    res.status(201).json({ message: 'Comment created successfully', comment: newComment, notification });
+  } catch (error) {
+    console.error('Error creating comment:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+
+};
 
 
 // Start the server
